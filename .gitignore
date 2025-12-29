@@ -1,0 +1,20 @@
+﻿# --- 后端 (GP_java/Spring Boot) ---
+GP_java/target/
+GP_java/.mvn/
+GP_java/mvnw
+GP_java/mvnw.cmd
+GP_java/.idea/
+GP_java/*.iml
+GP_java/logs/
+GP_java/help.md
+
+# --- 前端 (GP/HBuilderX) ---
+GP/unpackage/
+GP/.hbuilderx/
+GP/node_modules/
+GP/.DS_Store
+
+# --- 系统文件 ---
+.DS_Store
+Thumbs.db
+代码同步GitHub.txt
