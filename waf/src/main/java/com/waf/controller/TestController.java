@@ -3,6 +3,9 @@ package com.waf.controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import java.util.Map;
 
 @RestController
 public class TestController {
@@ -17,5 +20,10 @@ public class TestController {
     @GetMapping("/index")
     public String index() {
         return "这里是安全的业务系统首页。";
+    }
+
+    @PostMapping("/api/data")
+    public String postData(@RequestBody Map<String, Object> data) {
+        return "POST请求成功，接收到数据: " + data.toString();
     }
 }
