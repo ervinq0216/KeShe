@@ -11,7 +11,7 @@
  Target Server Version : 80044 (8.0.44)
  File Encoding         : 65001
 
- Date: 04/01/2026 18:32:37
+ Date: 04/01/2026 20:18:49
 */
 
 SET NAMES utf8mb4;
@@ -30,12 +30,15 @@ CREATE TABLE `attack_logs`  (
   `payload` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL COMMENT '具体的攻击参数内容',
   `create_time` datetime NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 5 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of attack_logs
 -- ----------------------------
 INSERT INTO `attack_logs` VALUES (1, '0:0:0:0:0:0:0:1', '/api/data', 'POST', 'SQL注入(Body内容)', '{\"name\": \"hacker\", \"desc\": \"\' UNION SELECT * FROM users --\"}', '2026-01-04 18:30:43');
+INSERT INTO `attack_logs` VALUES (2, '0:0:0:0:0:0:0:1', '/api/user', 'GET', 'XSS攻击(URL参数)', 'javascript:alert(1)', '2026-01-04 19:26:05');
+INSERT INTO `attack_logs` VALUES (3, '0:0:0:0:0:0:0:1', '/api/data', 'POST', 'XSS攻击(Body内容)', '{\"comment\": \"Test <img src=x onerror=alert(1)>\"}', '2026-01-04 19:26:12');
+INSERT INTO `attack_logs` VALUES (4, '0:0:0:0:0:0:0:1', '/api/user', 'GET', 'XSS攻击(URL参数)', 'javascript:alert(1)', '2026-01-04 19:47:30');
 
 -- ----------------------------
 -- Table structure for security_rules
