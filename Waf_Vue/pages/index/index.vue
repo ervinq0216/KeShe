@@ -1,8 +1,11 @@
 <template>
 	<div class="container">
 		<div class="header">
-			<h1 class="title">🛡️ WAF 网络安全防御系统 - 监控台</h1>
-			<button class="refresh-btn" @click="fetchLogs">刷新数据</button>
+			<h1 class="title">🛡️ WAF 网络安全防御系统</h1>
+			<div class="btn-group">
+				<button class="settings-btn" @click="goToRules">⚙️ 策略管理</button>
+				<button class="refresh-btn" @click="fetchLogs">刷新数据</button>
+			</div>
 		</div>
 
 		<div class="stats-panel">
@@ -34,7 +37,7 @@
 						<td>{{ formatDate(log.createTime) }}</td>
 						<td class="ip-cell">{{ log.ipAddress }}</td>
 						<td>
-							<span class="tag">{{ log.attackType }}</span>
+							<span :class="['tag', getTagClass(log.attackType)]">{{ log.attackType }}</span>
 						</td>
 						<td>{{ log.requestUri }}</td>
 						<td class="payload-cell" :title="log.payload">
@@ -52,44 +55,62 @@
 </template>
 
 <script setup>
-	import { ref, onMounted } from 'vue';
+	import { ref, onMounted, onUnmounted } from 'vue';
 
 	const logs = ref([]);
+	let timer = null;
+
+	// 跳转到规则管理页面
+	const goToRules = () => {
+		uni.navigateTo({
+			url: '/pages/rules/rules'
+		});
+	};
 
 	// 获取数据的函数
 	const fetchLogs = () => {
 		uni.request({
-			url: 'http://localhost:8080/api/logs', // 后端接口地址
+			url: 'http://localhost:8080/api/logs',
 			method: 'GET',
 			success: (res) => {
-				console.log('获取数据成功:', res.data);
 				logs.value = res.data;
 			},
 			fail: (err) => {
 				console.error('获取失败:', err);
-				uni.showToast({
-					title: '无法连接后端服务',
-					icon: 'none'
-				});
 			}
 		});
 	};
 
-	// 格式化时间 (简单的字符串处理)
+	// 辅助函数：格式化时间
 	const formatDate = (isoString) => {
 		if (!isoString) return '';
 		return isoString.replace('T', ' ').substring(0, 19);
 	};
 
-	// 截断过长的 Payload
+	// 辅助函数：截断字符串
 	const truncate = (str) => {
 		if (!str) return '';
 		return str.length > 50 ? str.substring(0, 50) + '...' : str;
 	};
+	
+	// 辅助函数：给标签上色
+	const getTagClass = (type) => {
+		if (!type) return '';
+		if (type.includes('SQL')) return 'sql';
+		if (type.includes('XSS')) return 'xss';
+		if (type.includes('DDoS')) return 'ddos';
+		return '';
+	};
 
-	// 页面加载时自动获取数据
+	// 生命周期：加载与销毁
 	onMounted(() => {
 		fetchLogs();
+		// 开启3秒自动刷新
+		timer = setInterval(fetchLogs, 3000);
+	});
+
+	onUnmounted(() => {
+		if (timer) clearInterval(timer);
 	});
 </script>
 
@@ -119,18 +140,37 @@
 		color: #1f2d3d;
 		font-size: 24px;
 	}
+	
+	.btn-group {
+		display: flex;
+		gap: 10px; /* 按钮之间的间距 */
+	}
 
 	.refresh-btn {
 		background-color: #409eff;
 		color: white;
 		border: none;
-		padding: 10px 20px;
+		padding: 8px 20px;
 		border-radius: 4px;
 		cursor: pointer;
 		font-weight: bold;
+		font-size: 14px;
 	}
-	.refresh-btn:active {
-		background-color: #337ecc;
+	
+	/* 新增：策略管理按钮样式 */
+	.settings-btn {
+		background-color: #67c23a; /* 绿色 */
+		color: white;
+		border: none;
+		padding: 8px 20px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-weight: bold;
+		font-size: 14px;
+	}
+
+	.refresh-btn:active, .settings-btn:active {
+		opacity: 0.8;
 	}
 
 	/* 统计卡片 */
@@ -187,15 +227,16 @@
 		background-color: #f5f7fa;
 	}
 
-	/* 特定列样式 */
+	/* 标签样式 */
 	.tag {
-		background-color: #fef0f0;
-		color: #f56c6c;
 		padding: 4px 8px;
 		border-radius: 4px;
 		font-size: 12px;
-		border: 1px solid #fde2e2;
+		font-weight: bold;
 	}
+	.tag.sql { background-color: #fef0f0; color: #f56c6c; border: 1px solid #fde2e2; }
+	.tag.xss { background-color: #fdf6ec; color: #e6a23c; border: 1px solid #faecd8; }
+	.tag.ddos { background-color: #303133; color: #fff; border: 1px solid #000; }
 	
 	.payload-cell {
 		font-family: Consolas, monospace;

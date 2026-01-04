@@ -2,6 +2,7 @@ package com.waf.filter;
 
 import com.waf.service.DdosService;
 import com.waf.service.LogService;
+import com.waf.service.RuleService; // 1. 引入规则服务
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -11,6 +12,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -23,17 +25,10 @@ public class SecurityFilter implements Filter {
     private LogService logService;
 
     @Autowired
-    private DdosService ddosService; // 注入 DDoS 检测服务
+    private DdosService ddosService;
 
-    // --- 规则定义区域 ---
-
-    // 1. SQL 注入正则
-    private static final String SQL_REGEX = "(?i)(.*)(\\b)+(OR|SELECT|INSERT|DELETE|UPDATE|DROP|UNION)(\\b)+(.*)";
-    private static final Pattern SQL_PATTERN = Pattern.compile(SQL_REGEX);
-
-    // 2. XSS 跨站脚本攻击正则
-    private static final String XSS_REGEX = "(?i)(<script|javascript:|onload=|onerror=|onclick=|onmouseover=|<iframe>|<img>|<body>|<style>)";
-    private static final Pattern XSS_PATTERN = Pattern.compile(XSS_REGEX);
+    @Autowired
+    private RuleService ruleService; // 2. 注入动态规则服务
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
@@ -47,9 +42,15 @@ public class SecurityFilter implements Filter {
         String method = req.getMethod();
 
         // --- 0. 最优先检测：DDoS 防御 ---
-        // 如果判定为 DDoS，直接在这里掐断，不进行后续的 RequestWrapper 包装和正则运算，节省 CPU
         if (ddosService.isDdosAttack(ip)) {
             log.warn("!! [DDoS] 流量异常，IP {} 已被临时封禁", ip);
+
+            // 【重要修复】拦截时必须手动写入日志，否则前端看不到记录
+            try {
+                logService.saveAttackLog(ip, uri, method, "DDoS攻击", "检测到高频访问，触发临时封禁策略");
+            } catch (Exception e) {
+                log.error("DDoS日志写入失败: ", e);
+            }
 
             res.setStatus(429); // 429 Too Many Requests
             res.setContentType("application/json;charset=UTF-8");
@@ -57,54 +58,80 @@ public class SecurityFilter implements Filter {
             return;
         }
 
-        // 排除掉查询日志的接口，防止自己拦截自己展示的数据
-        if (uri.contains("/api/logs")) {
-            chain.doFilter(req, res); // 这里不需要 wrapper，直接放行原请求即可
+        // 排除掉管理接口（日志查询、规则管理），防止自己拦截自己
+        if (uri.contains("/api/logs") || uri.contains("/api/rules")) {
+            chain.doFilter(req, res); // 不需要 wrapper，直接放行
             return;
         }
 
-        // --- 包装请求 (为了能读取 Body) ---
+        // --- 包装请求 (为了能多次读取 Body) ---
         RequestWrapper requestWrapper = null;
         if (req instanceof HttpServletRequest) {
             requestWrapper = new RequestWrapper(req);
         }
 
-        log.info(">> [流量监控] 来自IP: {} 访问了: {}", ip, uri);
+        // 仅打印业务请求日志 (过滤掉静态资源，让控制台更干净)
+        if (!uri.endsWith(".js") && !uri.endsWith(".css") && !uri.endsWith(".png")) {
+            log.info(">> [流量监控] 来自IP: {} 访问了: {}", ip, uri);
+        }
 
-        // --- 检测点 A：URL 参数 (SQL + XSS) ---
+        // --- 检测点 A：URL 参数 (动态规则: SQL + XSS) ---
         Map<String, String[]> parameterMap = requestWrapper.getParameterMap();
         for (Map.Entry<String, String[]> entry : parameterMap.entrySet()) {
             for (String value : entry.getValue()) {
-                // 检查 SQL
-                if (isSqlInjection(value)) {
+                if (checkRules(value, "SQL")) {
                     blockRequest(res, ip, uri, method, "SQL注入(URL参数)", value);
                     return;
                 }
-                // 检查 XSS
-                if (isXssAttack(value)) {
+                if (checkRules(value, "XSS")) {
                     blockRequest(res, ip, uri, method, "XSS攻击(URL参数)", value);
                     return;
                 }
             }
         }
 
-        // --- 检测点 B：Body 内容 (POST/PUT) (SQL + XSS) ---
+        // --- 检测点 B：Body 内容 (动态规则: SQL + XSS) ---
         if ("POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method)) {
             String body = requestWrapper.getBodyString();
-            // 检查 SQL
-            if (isSqlInjection(body)) {
+            if (checkRules(body, "SQL")) {
                 blockRequest(res, ip, uri, method, "SQL注入(Body内容)", body);
                 return;
             }
-            // 检查 XSS
-            if (isXssAttack(body)) {
+            if (checkRules(body, "XSS")) {
                 blockRequest(res, ip, uri, method, "XSS攻击(Body内容)", body);
                 return;
             }
         }
 
-        // 所有检查通过，放行 (注意要传 wrapper)
+        // 所有检查通过，放行 (注意传递 requestWrapper)
         chain.doFilter(requestWrapper, response);
+    }
+
+    /**
+     * 核心：统一动态规则匹配逻辑
+     * @param value 待检测的字符串
+     * @param type 规则类型 (SQL / XSS)
+     */
+    private boolean checkRules(String value, String type) {
+        if (value == null) return false;
+
+        List<Pattern> patterns;
+        // 根据类型从 Service 获取缓存的正则列表
+        if ("SQL".equals(type)) {
+            patterns = ruleService.getSqlPatterns();
+        } else {
+            patterns = ruleService.getXssPatterns();
+        }
+
+        if (patterns == null) return false;
+
+        // 遍历所有启用状态的正则规则
+        for (Pattern p : patterns) {
+            if (p.matcher(value).find()) {
+                return true; // 只要命中任何一条规则，直接判定为攻击
+            }
+        }
+        return false;
     }
 
     /**
@@ -123,17 +150,5 @@ public class SecurityFilter implements Filter {
         res.setStatus(403);
         res.setContentType("application/json;charset=UTF-8");
         res.getWriter().write("{\"code\": 403, \"message\": \"系统检测到非法内容(" + type + ")，请求被拒绝!\"}");
-    }
-
-    // SQL 检测逻辑
-    private boolean isSqlInjection(String value) {
-        if (value == null) return false;
-        return SQL_PATTERN.matcher(value).find();
-    }
-
-    // XSS 检测逻辑
-    private boolean isXssAttack(String value) {
-        if (value == null) return false;
-        return XSS_PATTERN.matcher(value).find();
     }
 }

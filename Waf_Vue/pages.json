@@ -5,6 +5,12 @@
 			"style": {
 				"navigationBarTitleText": "uni-app"
 			}
+		},
+		{
+		    "path": "pages/rules/rules",
+		    "style": {
+		        "navigationBarTitleText": "安全策略管理"
+		    }
 		}
 	],
 	"globalStyle": {
